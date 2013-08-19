@@ -401,7 +401,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                         { "token", token },
                         { "ixProject", this.CategoryIdFilter[0] },
                         { "sFixFor", releaseNumber },
-                        { "fAssignable", "true" }
+                        { "fAssignable", "1" }
                     });
             }
             finally
@@ -419,17 +419,36 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                 return;
 
             var token = LogOn();
+
             try
             {
-                Api(
-                    "newFixFor",
-                    new Dictionary<string, string>
-                    {
-                        { "token", token },
-                        { "ixProject", this.CategoryIdFilter[0] },
-                        { "sFixFor", releaseNumber },
-                        { "fAssignable", "true" }
-                    });
+                var viewMilestoneResponse =
+                    Api(
+                        "viewFixFor",
+                        new Dictionary<string, string>
+                        {
+                            { "ixProject", this.CategoryIdFilter[0] },
+                            { "sFixFor", releaseNumber }
+                        });
+
+                var milestoneIdNode = (XmlElement)viewMilestoneResponse.SelectSingleNode("/response/fixfor/ixFixFor");
+
+                // If the response node is empty then either the milestone doesn't exist or it's already been inactivated (or deleted).
+
+                if (milestoneIdNode != null)
+                {
+                    var milestoneId = milestoneIdNode.InnerText;
+
+                    Api(
+                        "editFixFor",
+                        new Dictionary<string, string>
+                        {
+                            { "token", token },
+                            { "ixFixFor", milestoneId },
+                            { "sFixFor", releaseNumber },
+                            { "fAssignable", "0" }
+                        });
+                }
             }
             finally
             {
