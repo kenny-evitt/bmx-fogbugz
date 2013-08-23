@@ -427,6 +427,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                         "viewFixFor",
                         new Dictionary<string, string>
                         {
+                            { "token", token },
                             { "ixProject", this.CategoryIdFilter[0] },
                             { "sFixFor", releaseNumber }
                         });
