@@ -8,7 +8,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
     /// <summary>
     /// Custom editor for the FogBugz Issue Tracking Provider.
     /// </summary>
-    public sealed class FogBugz7ProviderEditor : ProviderEditorBase
+    internal sealed class FogBugz7ProviderEditor : ProviderEditorBase
     {
         private ValidatingTextBox txtFogBugzApiUrl;
         private ValidatingTextBox txtUserEmail;
@@ -23,7 +23,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
 
         public override void BindToForm(ProviderBase extension)
         {
-            EnsureChildControls();
+            this.EnsureChildControls();
 
             var provider = (FogBugz7Provider)extension;
             this.txtFogBugzApiUrl.Text = provider.FogBugzApiUrl ?? string.Empty;
@@ -32,7 +32,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         }
         public override ProviderBase CreateFromForm()
         {
-            EnsureChildControls();
+            this.EnsureChildControls();
 
             return new FogBugz7Provider
             {
