@@ -139,7 +139,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         /// <returns>
         /// The URL of the specified issue if applicable; otherwise null.
         /// </returns>
-        public override string GetIssueUrl(Issue issue)
+        public override string GetIssueUrl(IssueTrackerIssue issue)
         {
             if (issue == null)
                 return null;
@@ -148,14 +148,14 @@ namespace Inedo.BuildMasterExtensions.FogBugz
             return url.ToString();
         }
         /// <summary>
-        /// Returns an array of <see cref="Issue"/> objects that are for the current
+        /// Returns an array of <see cref="IssueTrackerIssue"/> objects that are for the current
         /// release.
         /// </summary>
         /// <param name="releaseNumber">Release number of issues to return.</param>
         /// <returns>
         /// Array of issues for the specified release.
         /// </returns>
-        public override Issue[] GetIssues(string releaseNumber)
+        public override IssueTrackerIssue[] GetIssues(string releaseNumber)
         {
             var token = LogOn();
             try
@@ -216,7 +216,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         /// <returns>
         /// True if issue is closed; otherwise false.
         /// </returns>
-        public override bool IsIssueClosed(Issue issue)
+        public override bool IsIssueClosed(IssueTrackerIssue issue)
         {
             return ((FogBugz7Issue)issue).IsResolved;
         }
@@ -265,7 +265,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         /// Returns an array of all appropriate categories defined within the provider.
         /// </summary>
         /// <returns></returns>
-        public CategoryBase[] GetCategories()
+        public IssueTrackerCategory[] GetCategories()
         {
             var token = LogOn();
             try
