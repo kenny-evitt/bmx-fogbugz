@@ -5,6 +5,8 @@ using System.Text;
 using System.Web;
 using System.Xml;
 using Inedo.BuildMaster;
+using Inedo.BuildMaster.Extensibility;
+using Inedo.BuildMaster.Extensibility.IssueTrackerConnections;
 using Inedo.BuildMaster.Extensibility.Providers;
 using Inedo.BuildMaster.Extensibility.Providers.IssueTracking;
 using Inedo.BuildMaster.Web;
@@ -18,7 +20,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         "FogBugz",
         "Supports FogBugz 7 or newer.")]
     [CustomEditor(typeof(FogBugz7ProviderEditor))]
-    public sealed class FogBugz7Provider : IssueTrackingProviderBase, ICategoryFilterable, IUpdatingProvider, IReleaseNumberCreator, IReleaseNumberCloser
+    public sealed class FogBugz7Provider : IssueTrackerConnectionBase, ICategoryFilterable, IUpdatingProvider, IReleaseNumberCreator, IReleaseNumberCloser, IIssueCloser, IIssueCommenter, IIssueStatusUpdater, IReleaseManager
     {
         /// <summary>
         /// Tested version of FogBugz.
@@ -88,6 +90,17 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         }
 
         /// <summary>
+        /// Add a comment to the specified issue.
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="issueId"></param>
+        /// <param name="commentText"></param>
+        public void AddComment(IssueTrackerConnectionContext context, string issueId, string commentText)
+        {
+            this.AppendIssueDescription(issueId, commentText);
+        }
+
+        /// <summary>
         /// Gets the current WebClient for accessing FogBugz.
         /// </summary>
         private WebClient ApiClient
@@ -133,34 +146,52 @@ namespace Inedo.BuildMasterExtensions.FogBugz
         }
 
         /// <summary>
-        /// Gets a URL to the specified issue.
+        /// Change the status of the specified issue.
         /// </summary>
-        /// <param name="issue">The issue whose URL is returned.</param>
-        /// <returns>
-        /// The URL of the specified issue if applicable; otherwise null.
-        /// </returns>
-        public override string GetIssueUrl(IssueTrackerIssue issue)
+        /// <param name="context"></param>
+        /// <param name="issueId"></param>
+        /// <param name="issueStatus"></param>
+        public void ChangeIssueStatus(IssueTrackerConnectionContext context, string issueId, string issueStatus)
         {
-            if (issue == null)
-                return null;
-
-            var url = new Uri(new Uri(this.FogBugzApiUrl), "default.asp?" + issue.IssueId).ToString();
-            return url.ToString();
+            this.ChangeIssueStatus(issueId, issueStatus);
         }
+
         /// <summary>
-        /// Returns an array of <see cref="IssueTrackerIssue"/> objects that are for the current
-        /// release.
+        /// Change the status of all the issues in the specified context with the specified initial status.
         /// </summary>
-        /// <param name="releaseNumber">Release number of issues to return.</param>
-        /// <returns>
-        /// Array of issues for the specified release.
-        /// </returns>
-        public override IssueTrackerIssue[] GetIssues(string releaseNumber)
+        /// <param name="context"></param>
+        /// <param name="fromStatus">Initial status</param>
+        /// <param name="toStatus">New status</param>
+        public void ChangeStatusForAllIssues(IssueTrackerConnectionContext context, string fromStatus, string toStatus)
+        {
+            foreach (IIssueTrackerIssue issue in this.EnumerateIssues(context))
+            {
+                if (issue.Status == fromStatus)
+                    this.ChangeIssueStatus(context, issue.Id, toStatus);
+            }
+        }
+
+        /// <summary>
+        /// Close all issues in the specified context (release).
+        /// </summary>
+        /// <param name="context"></param>
+        public void CloseAllIssues(IssueTrackerConnectionContext context)
+        {
+            this.CloseReleaseNumber(context.ReleaseNumber);
+        }
+
+        /// <summary>
+        /// Returns a collection of issues for the specified context.
+        /// </summary>
+        /// <param name="context">Context with release number of issues to be returned</param>
+        /// <returns>Collection of issues for the release number of the specified context</returns>
+        public override IEnumerable<IIssueTrackerIssue> EnumerateIssues(IssueTrackerConnectionContext context)
         {
             var token = LogOn();
             try
             {
                 var resolvedStatuses = GetIssueResolvedTable(token);
+                var peopleNames = this.GetPeopleNamesTable(token);
 
                 var projectQuery = "";
                 if (this.CategoryIdFilter != null && this.CategoryIdFilter.Length > 0 && !string.IsNullOrEmpty(this.CategoryIdFilter[0]))
@@ -175,7 +206,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
 
                     var projectNameNode = projectInfo.SelectSingleNode("/response/project/sProject");
                     if (projectNameNode != null && !string.IsNullOrEmpty(projectNameNode.InnerText))
-                        projectQuery = " project:\"" + projectNameNode.InnerText + "\""; 
+                        projectQuery = " project:\"" + projectNameNode.InnerText + "\"";
                 }
 
                 var issuesResponse = Api(
@@ -183,7 +214,7 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                     new Dictionary<string, string>
                     {
                         { "token", token },
-                        { "q", "milestone:\"" + releaseNumber + "\"" + projectQuery },
+                        { "q", "milestone:\"" + context.ReleaseNumber + "\"" + projectQuery },
                         { "cols", "sTitle,sLatestTextSummary,ixStatus,sStatus" }
                     });
 
@@ -192,34 +223,28 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                 foreach (XmlElement issueNode in issueNodes)
                 {
                     int statusId = int.Parse(issueNode.SelectSingleNode("ixStatus").InnerText);
+                    int submitterId = int.Parse(issueNode.SelectSingleNode("ixPersonOpenedBy").InnerText);
 
                     issues.Add(new FogBugz7Issue(
                         issueNode.GetAttribute("ixBug"),
                         issueNode.SelectSingleNode("sStatus").InnerText,
                         issueNode.SelectSingleNode("sTitle").InnerText,
                         issueNode.SelectSingleNode("sLatestTextSummary").InnerText ?? "",
-                        releaseNumber,
-                        resolvedStatuses[statusId]));
+                        context.ReleaseNumber,
+                        resolvedStatuses[statusId],
+                        this,
+                        issueNode.SelectSingleNode("dtOpened").InnerText,
+                        peopleNames[submitterId]));
                 }
 
-                return issues.ToArray();
+                return issues;
             }
             finally
             {
                 LogOff(token);
             }
         }
-        /// <summary>
-        /// Returns a value indicating if the specified issue is closed.
-        /// </summary>
-        /// <param name="issue">Issue to check for a closed state.</param>
-        /// <returns>
-        /// True if issue is closed; otherwise false.
-        /// </returns>
-        public override bool IsIssueClosed(IssueTrackerIssue issue)
-        {
-            return ((FogBugz7Issue)issue).IsResolved;
-        }
+
         /// <summary>
         /// When implemented in a derived class, indicates whether the provider
         /// is installed and available for use in the current execution context.
@@ -251,6 +276,12 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                     LogOff(token);
             }
         }
+
+        public override ExtensionComponentDescription GetDescription()
+        {
+            return new ExtensionComponentDescription(this.ToString());
+        }
+
         /// <summary>
         /// Returns a <see cref="System.String"/> that represents this instance.
         /// </summary>
@@ -382,6 +413,26 @@ namespace Inedo.BuildMasterExtensions.FogBugz
                 LogOff(token);
             }
         }
+
+        /// <summary>
+        /// Closes the specified issue.
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="issueId"></param>
+        public void CloseIssue(IssueTrackerConnectionContext context, string issueId)
+        {
+            this.CloseIssue(issueId);
+        }
+
+        /// <summary>
+        /// Creates a release for the specified context.
+        /// </summary>
+        /// <param name="context"></param>
+        public void CreateRelease(IssueTrackerConnectionContext context)
+        {
+            this.CreateReleaseNumber(context.ReleaseNumber);
+        }
+
         /// <summary>
         /// Creates the specified release number at the source
         /// </summary>
@@ -455,6 +506,15 @@ namespace Inedo.BuildMasterExtensions.FogBugz
             {
                 LogOff(token);
             }
+        }
+
+        /// <summary>
+        /// Close the release for the specified context.
+        /// </summary>
+        /// <param name="context"></param>
+        public void DeployRelease(IssueTrackerConnectionContext context)
+        {
+            this.CloseReleaseNumber(context.ReleaseNumber);
         }
 
         /// <summary>
@@ -586,6 +646,32 @@ namespace Inedo.BuildMasterExtensions.FogBugz
             }
 
             return statuses;
+        }
+
+        /// <summary>
+        /// Returns a table containing people names.
+        /// </summary>
+        /// <param name="token">Token of the current session</param>
+        /// <returns>Table containing people names</returns>
+        private Dictionary<int, string> GetPeopleNamesTable(string token)
+        {
+            var personNodes = Api(
+                "listPeople",
+                new Dictionary<string, string>
+                {
+                    { "token", token },
+                });
+
+            var personNames = new Dictionary<int, string>();
+
+            foreach (XmlElement personNode in personNodes.SelectNodes("/response/people/person"))
+            {
+                int id = int.Parse(personNode.SelectSingleNode("ixPerson").InnerText);
+                string name = personNode.SelectSingleNode("sFullName").InnerText;
+                personNames[id] = name;
+            }
+
+            return personNames;
         }
     }
 }
